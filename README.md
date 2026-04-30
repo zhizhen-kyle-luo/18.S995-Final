@@ -8,9 +8,11 @@ A controlled numerical case study comparing core LayerNorm and core Dynamic Tanh
 
 ```bash
 uv sync
-uv run python diagnostics.py                                              # full run
-uv run python diagnostics.py --num_texts 40 --max_tokens 256 --skip_attention   # fast
+uv run python diagnostics.py                                                                          # full paper run -> results/
+uv run python diagnostics.py --num_texts 40 --max_tokens 256 --skip_attention --output_dir results_fast  # fast smoke -> results_fast/
 ```
+
+The fast command uses a separate output directory so it cannot overwrite the canonical paper outputs in `results/`.
 
 Outputs land in `results/`: `metrics_summary.csv`, `low_rank_errors.csv`, `gram_diagonal_summary.csv`, and `fig_*.png`. When attention diagnostics are enabled (default), `attention_perturbation.csv`, `fig_stable_rank_S.png`, and `fig_kappa_eff_S.png` are also written; `--skip_attention` omits them.
 

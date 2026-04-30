@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import argparse
 import math
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -620,8 +622,8 @@ def parse_args() -> argparse.Namespace:
             p.error(f"--{name} must be >= 1")
     if args.eps <= 0:
         p.error("--eps must be > 0")
-    if args.rel_tol <= 0:
-        p.error("--rel_tol must be > 0")
+    if not (0 < args.rel_tol < 1):
+        p.error("--rel_tol must satisfy 0 < rel_tol < 1 (it is a relative threshold against sigma_1)")
 
     def _parse_float_list(raw: str, name: str) -> List[float]:
         items = [tok.strip() for tok in raw.split(",") if tok.strip()]
@@ -837,17 +839,28 @@ def main() -> None:
     metrics_df = pd.DataFrame(metrics_rows)
     low_rank_df = pd.DataFrame(low_rank_rows)
     gram_diag_df = pd.DataFrame(gram_diag_rows)
-    clear_stale_outputs(out_dir)
-    metrics_df.to_csv(out_dir / "metrics_summary.csv", index=False)
-    low_rank_df.to_csv(out_dir / "low_rank_errors.csv", index=False)
-    gram_diag_df.to_csv(out_dir / "gram_diagonal_summary.csv", index=False)
-    if perturb_rows:
-        pd.DataFrame(perturb_rows).to_csv(out_dir / "attention_perturbation.csv", index=False)
 
-    make_plots(metrics_df, low_rank_df, gram_diag_df,
-               spectra_X, spectra_G, final_layer, out_dir,
-               hidden_dim=int(model.config.dim),
-               transforms=transforms)
+    # write everything to a staging dir, then atomically replace into out_dir.
+    # this means a failure during csv-write or plotting does not leave
+    # out_dir in a half-old / half-new state.
+    with tempfile.TemporaryDirectory(
+        dir=out_dir.parent, prefix=f".{out_dir.name}.staging."
+    ) as staging_str:
+        staging = Path(staging_str)
+        metrics_df.to_csv(staging / "metrics_summary.csv", index=False)
+        low_rank_df.to_csv(staging / "low_rank_errors.csv", index=False)
+        gram_diag_df.to_csv(staging / "gram_diagonal_summary.csv", index=False)
+        if perturb_rows:
+            pd.DataFrame(perturb_rows).to_csv(staging / "attention_perturbation.csv", index=False)
+
+        make_plots(metrics_df, low_rank_df, gram_diag_df,
+                   spectra_X, spectra_G, final_layer, staging,
+                   hidden_dim=int(model.config.dim),
+                   transforms=transforms)
+
+        clear_stale_outputs(out_dir)
+        for f in staging.iterdir():
+            shutil.move(str(f), str(out_dir / f.name))
 
     print(f"\noutputs saved to: {out_dir.resolve()}")
     for f in sorted(out_dir.iterdir()):
