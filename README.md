@@ -12,7 +12,7 @@ uv run python diagnostics.py                                              # full
 uv run python diagnostics.py --num_texts 40 --max_tokens 256 --skip_attention   # fast
 ```
 
-Outputs land in `results/`: `metrics_summary.csv`, `low_rank_errors.csv`, `gram_diagonal_summary.csv`, `attention_perturbation.csv`, and `fig_*.png`.
+Outputs land in `results/`: `metrics_summary.csv`, `low_rank_errors.csv`, `gram_diagonal_summary.csv`, and `fig_*.png`. When attention diagnostics are enabled (default), `attention_perturbation.csv`, `fig_stable_rank_S.png`, and `fig_kappa_eff_S.png` are also written; `--skip_attention` omits them.
 
 ## CLI flags
 

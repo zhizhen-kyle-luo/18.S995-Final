@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm.auto import tqdm
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 _BASE_TEXTS: List[str] = [
     "Transformers use attention mechanisms to compare token representations.",
@@ -149,15 +149,16 @@ def transform_label(transform: str, alpha: Optional[float]) -> str:
 
 
 def load_model(model_name: str, device: torch.device):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name).to(device)
-    model.train(False)
-    mtype = getattr(model.config, "model_type", None)
+    config = AutoConfig.from_pretrained(model_name)
+    mtype = getattr(config, "model_type", None)
     if mtype != "distilbert":
         raise ValueError(
             f"this script targets DistilBERT (model.transformer.layer[i].attention.q_lin etc.); "
             f"got model_type={mtype!r}. pass --model_name pointing to a distilbert checkpoint."
         )
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name).to(device)
+    model.train(False)
     return model, tokenizer
 
 
@@ -289,15 +290,15 @@ def compute_gram_diag_summary(G: torch.Tensor) -> Dict:
 
 
 def get_qk_projections(model, layer_idx: int):
-    """returns (q_lin, k_lin, n_heads, head_dim) for distilbert layer layer_idx, on cpu."""
+    """returns (q_lin, k_lin, n_heads, head_dim) for distilbert layer layer_idx.
+
+    caller is responsible for placing the model on cpu (see run_attention_diagnostics);
+    this function does not move tensors.
+    """
     attn = model.transformer.layer[layer_idx].attention
-    q_lin = attn.q_lin.cpu()
-    k_lin = attn.k_lin.cpu()
     n_heads = int(attn.n_heads)
     head_dim = model.config.dim // n_heads
-    q_lin.train(False)
-    k_lin.train(False)
-    return q_lin, k_lin, n_heads, head_dim
+    return attn.q_lin, attn.k_lin, n_heads, head_dim
 
 
 def compute_attention_scores(
@@ -523,15 +524,17 @@ def plot_gram_diag_bars(
     if not means:
         return
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    x = np.arange(len(labels))
-    colors = ["#888888", "#1f77b4", "#aec7e8", "#7fbf7f", "#2ca02c"][: len(labels)]
+    n = len(labels)
+    fig, ax = plt.subplots(figsize=(max(7.5, 1.3 * n), 4.2))
+    x = np.arange(n)
+    base_colors = ["#888888", "#1f77b4", "#aec7e8", "#7fbf7f", "#2ca02c"]
+    colors = [base_colors[i % len(base_colors)] for i in range(n)]
     ax.bar(x, means, yerr=stds, capsize=6, color=colors,
            edgecolor="black", linewidth=0.6)
     ax.axhline(d, color="red", linestyle="--", linewidth=1,
                label=rf"$d={d}$ (LN prediction)")
     ax.set_xticks(x)
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, rotation=20 if n > 5 else 0, ha="right" if n > 5 else "center")
     ax.set_ylabel("Gram diagonal mean (with std as error bars)")
     ax.set_title(f"Row norms at {layer}: $\\mathrm{{diag}}(G)$ across transforms")
     ax.legend(loc="upper right", fontsize=9)
@@ -722,7 +725,11 @@ def run_attention_diagnostics(
     rel_tol: float,
     perturb_scales: List[float],
 ) -> Tuple[List[Dict], List[Dict]]:
-    """spectral metrics of S and perturbation response for each (layer, transform)."""
+    """spectral metrics of S and perturbation response for each (layer, transform).
+
+    moves the model to cpu once, since attention diagnostics work with cpu hidden states.
+    """
+    model.cpu()
     metrics: List[Dict] = []
     perturb: List[Dict] = []
 
@@ -790,7 +797,6 @@ def main() -> None:
     args = parse_args()
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    clear_stale_outputs(out_dir)
 
     transforms: List[Tuple[str, Optional[float]]] = (
         [("raw", None), ("ln", None)] + [("dyt", a) for a in args.alphas]
@@ -833,6 +839,7 @@ def main() -> None:
     metrics_df = pd.DataFrame(metrics_rows)
     low_rank_df = pd.DataFrame(low_rank_rows)
     gram_diag_df = pd.DataFrame(gram_diag_rows)
+    clear_stale_outputs(out_dir)
     metrics_df.to_csv(out_dir / "metrics_summary.csv", index=False)
     low_rank_df.to_csv(out_dir / "low_rank_errors.csv", index=False)
     gram_diag_df.to_csv(out_dir / "gram_diagonal_summary.csv", index=False)
