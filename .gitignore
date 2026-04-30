@@ -1,4 +1,4 @@
-# Python-generated files
+# python-generated files
 __pycache__/
 *.py[oc]
 build/
@@ -7,8 +7,9 @@ wheels/
 *.egg-info
 CLAUDE.md
 
-# Virtual environments
-.venv
+# local environments and tool versions
+.venv/
+.python-version
 
-# macOS
+# macos
 .DS_Store
