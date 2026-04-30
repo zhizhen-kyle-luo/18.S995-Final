@@ -524,7 +524,7 @@ def plot_gram_diag_bars(
         return
 
     n = len(labels)
-    fig, ax = plt.subplots(figsize=(max(7.5, 1.3 * n), 4.2))
+    fig, ax = plt.subplots(figsize=(max(7.5, 1.3 * n), 4.6))
     x = np.arange(n)
     base_colors = ["#888888", "#1f77b4", "#aec7e8", "#7fbf7f", "#2ca02c"]
     colors = [base_colors[i % len(base_colors)] for i in range(n)]
@@ -536,9 +536,13 @@ def plot_gram_diag_bars(
     ax.set_xticklabels(labels, rotation=20 if n > 5 else 0, ha="right" if n > 5 else "center")
     ax.set_ylabel("Gram diagonal mean (with std as error bars)")
     ax.set_title(f"Row norms at {layer}: $\\mathrm{{diag}}(G)$ across transforms")
-    ax.legend(loc="upper right", fontsize=9)
+
+    ymax = max(d, max(m + s for m, s in zip(means, stds))) * 1.18
+    ax.set_ylim(0, ymax)
+    ax.legend(loc="upper left", fontsize=9)
+    offset = ymax * 0.025
     for i, (m, s) in enumerate(zip(means, stds)):
-        ax.text(i, m + max(stds) * 0.4, f"{m:.1f}\n$\\pm${s:.2f}",
+        ax.text(i, m + s + offset, f"{m:.1f}\n$\\pm${s:.2f}",
                 ha="center", fontsize=8)
     fig.tight_layout()
     fig.savefig(path, dpi=200)
