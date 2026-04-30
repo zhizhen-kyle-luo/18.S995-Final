@@ -571,6 +571,7 @@ def make_plots(
     spectra_G: Dict[str, np.ndarray],
     final_layer: str,
     out_dir: Path,
+    hidden_dim: int,
 ) -> None:
     plot_spectrum(spectra_X, f"Feature singular value decay (layer {final_layer})",
                   out_dir / "fig_spectrum_X_final.png")
@@ -599,7 +600,8 @@ def make_plots(
                path=out_dir / "fig_gram_diag_mean.png")
 
     plot_gram_diag_bars(gd, layer=final_layer,
-                        path=out_dir / "fig_gram_diag_layer6_bars.png")
+                        path=out_dir / "fig_gram_diag_layer6_bars.png",
+                        d=hidden_dim)
 
     for matrix in ["X", "G"]:
         plot_low_rank_curve(
@@ -634,7 +636,124 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# Main
+def state_name(idx: int) -> str:
+    return "embed" if idx == 0 else f"layer_{idx}"
+
+
+def run_feature_gram_diagnostics(
+    hidden_by_state: List[List[torch.Tensor]],
+    masks: List[torch.Tensor],
+    transforms: List[Tuple[str, Optional[float]]],
+    max_tokens: int,
+    eps: float,
+    rel_tol: float,
+    ks: List[int],
+) -> Tuple[List[Dict], List[Dict], List[Dict], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    """spectral diagnostics on X and G for every hidden state and every transform."""
+    n_states = len(hidden_by_state)
+    state_indices = list(range(n_states))
+    final = state_name(state_indices[-1])
+
+    metrics: List[Dict] = []
+    low_rank: List[Dict] = []
+    gram_diag: List[Dict] = []
+    spectra_X: Dict[str, np.ndarray] = {}
+    spectra_G: Dict[str, np.ndarray] = {}
+
+    for state_idx in tqdm(state_indices, desc="feature/gram diagnostics"):
+        layer = state_name(state_idx)
+        X_raw = aggregate_tokens(hidden_by_state[state_idx], masks, max_tokens)
+
+        for transform, alpha in transforms:
+            label = transform_label(transform, alpha)
+            X = apply_transform(X_raw, transform, alpha, eps)
+
+            met_X, sX = compute_svd_metrics(X, rel_tol)
+            metrics.append(dict(
+                layer=layer, matrix_type="X",
+                transform=transform, alpha=np.nan if alpha is None else alpha,
+                n_rows=X.shape[0], n_cols=X.shape[1],
+                top_sv=met_X.get("sigma1", np.nan), **met_X,
+            ))
+            for k, err in compute_low_rank_errors(sX, ks).items():
+                low_rank.append(dict(
+                    layer=layer, matrix_type="X",
+                    transform=transform, alpha=np.nan if alpha is None else alpha,
+                    k=k, rel_fro_error=err,
+                ))
+
+            G = compute_gram(X)
+            gram_diag.append(dict(
+                layer=layer, transform=transform,
+                alpha=np.nan if alpha is None else alpha,
+                **compute_gram_diag_summary(G),
+            ))
+            met_G, sG = compute_svd_metrics(G, rel_tol)
+            metrics.append(dict(
+                layer=layer, matrix_type="G",
+                transform=transform, alpha=np.nan if alpha is None else alpha,
+                n_rows=G.shape[0], n_cols=G.shape[1],
+                top_sv=met_G.get("sigma1", np.nan), **met_G,
+            ))
+            for k, err in compute_low_rank_errors(sG, ks).items():
+                low_rank.append(dict(
+                    layer=layer, matrix_type="G",
+                    transform=transform, alpha=np.nan if alpha is None else alpha,
+                    k=k, rel_fro_error=err,
+                ))
+
+            if layer == final:
+                spectra_X[label] = sX
+                spectra_G[label] = sG
+
+    return metrics, low_rank, gram_diag, spectra_X, spectra_G
+
+
+def run_attention_diagnostics(
+    model,
+    hidden_by_state: List[List[torch.Tensor]],
+    masks: List[torch.Tensor],
+    n_transformer_layers: int,
+    transforms: List[Tuple[str, Optional[float]]],
+    eps: float,
+    rel_tol: float,
+    perturb_scales: List[float],
+) -> Tuple[List[Dict], List[Dict]]:
+    """spectral metrics of S and perturbation response for each (layer, transform)."""
+    metrics: List[Dict] = []
+    perturb: List[Dict] = []
+
+    for t_idx in tqdm(range(n_transformer_layers), desc="attention diagnostics"):
+        # attention at transformer layer t_idx consumes hidden_by_state[t_idx] as input.
+        layer = state_name(t_idx + 1)
+        state_batches = hidden_by_state[t_idx]
+
+        for transform, alpha in transforms:
+            head_results = compute_attention_scores(
+                model, t_idx, state_batches, masks,
+                transform, alpha, eps, max_sequences=32,
+            )
+            if head_results:
+                met_list = [compute_svd_metrics(S, rel_tol)[0] for _, S in head_results]
+                avg = {k: float(np.nanmean([r[k] for r in met_list])) for k in met_list[0]}
+                metrics.append(dict(
+                    layer=layer, matrix_type="S",
+                    transform=transform, alpha=np.nan if alpha is None else alpha,
+                    n_rows=np.nan, n_cols=np.nan,
+                    top_sv=avg.get("sigma1", np.nan), **avg,
+                ))
+
+            p_rows = compute_attention_perturbation(
+                model, t_idx, state_batches, masks,
+                transform, alpha, eps,
+                perturb_scales=perturb_scales, max_sequences=16,
+            )
+            for r in p_rows:
+                r["layer"] = layer
+            perturb.extend(p_rows)
+
+    return metrics, perturb
+
 
 def main() -> None:
     args = parse_args()
@@ -643,154 +762,61 @@ def main() -> None:
 
     alphas = [float(a) for a in args.alphas.split(",")]
     perturb_scales = [float(s) for s in args.perturb_scales.split(",")]
+    transforms: List[Tuple[str, Optional[float]]] = (
+        [("raw", None), ("ln", None)] + [("dyt", a) for a in alphas]
+    )
+    ks = [1, 2, 4, 8, 16, 32, 64, 128]
 
     device = choose_device(args.device)
     print(f"device: {device}")
-
     texts = get_texts(args.num_texts, args.text_file)
     print(f"texts: {len(texts)}")
-
     model, tokenizer = load_model(args.model_name, device)
     print(f"model: {args.model_name}")
 
     hidden_by_state, masks = collect_hidden_states(
         model, tokenizer, texts, args.batch_size, args.max_length, device
     )
-
-    # hidden_by_state[0]   = embedding output
-    # hidden_by_state[l]   = output of transformer layer l   (l = 1..n_layers)
     n_transformer_layers = model.config.n_layers
     n_states = len(hidden_by_state)
     if n_states != n_transformer_layers + 1:
         raise RuntimeError(
             f"expected {n_transformer_layers + 1} hidden states, got {n_states}"
         )
+    final_layer = state_name(n_states - 1)
 
-    def state_name(idx: int) -> str:
-        return "embed" if idx == 0 else f"layer_{idx}"
+    metrics_rows, low_rank_rows, gram_diag_rows, spectra_X, spectra_G = (
+        run_feature_gram_diagnostics(
+            hidden_by_state, masks, transforms,
+            args.max_tokens, args.eps, args.rel_tol, ks,
+        )
+    )
 
-    state_indices = list(range(n_states))   # [0, 1, ..., n_layers]
-    final_layer = state_name(state_indices[-1])
-
-    transforms: List[Tuple[str, Optional[float]]] = [("raw", None), ("ln", None)]
-    transforms += [("dyt", a) for a in alphas]
-
-    ks = [1, 2, 4, 8, 16, 32, 64, 128]
-
-    metrics_rows: List[Dict] = []
-    low_rank_rows: List[Dict] = []
-    gram_diag_rows: List[Dict] = []
-    spectra_X: Dict[str, np.ndarray] = {}
-    spectra_G: Dict[str, np.ndarray] = {}
-
-    # Feature and Gram diagnostics (all hidden states, embed through layer_6)
-    for state_idx in tqdm(state_indices, desc="Feature/Gram diagnostics"):
-        layer_label = state_name(state_idx)
-        X_raw = aggregate_tokens(hidden_by_state[state_idx], masks, args.max_tokens)
-
-        for transform, alpha in transforms:
-            label = transform_label(transform, alpha)
-            X = apply_transform(X_raw, transform, alpha, args.eps)
-
-            met_X, sX = compute_svd_metrics(X, args.rel_tol)
-            metrics_rows.append(dict(
-                layer=layer_label, matrix_type="X",
-                transform=transform, alpha=np.nan if alpha is None else alpha,
-                n_rows=X.shape[0], n_cols=X.shape[1],
-                top_sv=met_X.get("sigma1", np.nan),
-                **met_X,
-            ))
-            for k, err in compute_low_rank_errors(sX, ks).items():
-                low_rank_rows.append(dict(
-                    layer=layer_label, matrix_type="X",
-                    transform=transform, alpha=np.nan if alpha is None else alpha,
-                    k=k, rel_fro_error=err,
-                ))
-
-            G = compute_gram(X)
-            gram_diag_rows.append(dict(
-                layer=layer_label,
-                transform=transform, alpha=np.nan if alpha is None else alpha,
-                **compute_gram_diag_summary(G),
-            ))
-            met_G, sG = compute_svd_metrics(G, args.rel_tol)
-            metrics_rows.append(dict(
-                layer=layer_label, matrix_type="G",
-                transform=transform, alpha=np.nan if alpha is None else alpha,
-                n_rows=G.shape[0], n_cols=G.shape[1],
-                top_sv=met_G.get("sigma1", np.nan),
-                **met_G,
-            ))
-            for k, err in compute_low_rank_errors(sG, ks).items():
-                low_rank_rows.append(dict(
-                    layer=layer_label, matrix_type="G",
-                    transform=transform, alpha=np.nan if alpha is None else alpha,
-                    k=k, rel_fro_error=err,
-                ))
-
-            if layer_label == final_layer:
-                spectra_X[label] = sX
-                spectra_G[label] = sG
-
-    # Attention score and perturbation diagnostics (transformer layers only)
     perturb_rows: List[Dict] = []
-
     if not args.skip_attention:
-        attention_ok = True
-        for t_idx in tqdm(range(n_transformer_layers), desc="Attention diagnostics"):
-            if not attention_ok:
-                break
-            # attention layer t_idx (1-indexed in label) consumes hidden_by_state[t_idx]
-            # as its input, which is the output of the previous block (or the embedding).
-            layer_label = state_name(t_idx + 1)
-            state_batches = hidden_by_state[t_idx]
+        try:
+            s_metrics, perturb_rows = run_attention_diagnostics(
+                model, hidden_by_state, masks, n_transformer_layers,
+                transforms, args.eps, args.rel_tol, perturb_scales,
+            )
+            metrics_rows.extend(s_metrics)
+        except AttributeError as exc:
+            print(f"\nwarning: attention diagnostics skipped -- {exc}")
 
-            try:
-                for transform, alpha in transforms:
-                    head_results = compute_attention_scores(
-                        model, t_idx, state_batches, masks,
-                        transform, alpha, args.eps, max_sequences=32,
-                    )
-                    if head_results:
-                        met_list = [compute_svd_metrics(S, args.rel_tol)[0] for _, S in head_results]
-                        avg = {k: float(np.nanmean([r[k] for r in met_list])) for k in met_list[0]}
-                        metrics_rows.append(dict(
-                            layer=layer_label, matrix_type="S",
-                            transform=transform, alpha=np.nan if alpha is None else alpha,
-                            n_rows=np.nan, n_cols=np.nan,
-                            top_sv=avg.get("sigma1", np.nan),
-                            **avg,
-                        ))
-
-                    p_rows = compute_attention_perturbation(
-                        model, t_idx, state_batches, masks,
-                        transform, alpha, args.eps,
-                        perturb_scales=perturb_scales, max_sequences=16,
-                    )
-                    for r in p_rows:
-                        r["layer"] = layer_label
-                    perturb_rows.extend(p_rows)
-
-            except AttributeError as exc:
-                print(f"\nWARNING: Attention diagnostics skipped -- {exc}")
-                attention_ok = False
-
-    # Save CSVs
     metrics_df = pd.DataFrame(metrics_rows)
     low_rank_df = pd.DataFrame(low_rank_rows)
     gram_diag_df = pd.DataFrame(gram_diag_rows)
-
     metrics_df.to_csv(out_dir / "metrics_summary.csv", index=False)
     low_rank_df.to_csv(out_dir / "low_rank_errors.csv", index=False)
     gram_diag_df.to_csv(out_dir / "gram_diagonal_summary.csv", index=False)
     if perturb_rows:
         pd.DataFrame(perturb_rows).to_csv(out_dir / "attention_perturbation.csv", index=False)
 
-    # Plots
     make_plots(metrics_df, low_rank_df, gram_diag_df,
-               spectra_X, spectra_G, final_layer, out_dir)
+               spectra_X, spectra_G, final_layer, out_dir,
+               hidden_dim=int(model.config.dim))
 
-    print(f"\nOutputs saved to: {out_dir.resolve()}")
+    print(f"\noutputs saved to: {out_dir.resolve()}")
     for f in sorted(out_dir.iterdir()):
         print(f"  {f.name}")
 
