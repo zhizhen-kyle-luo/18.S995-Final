@@ -775,7 +775,7 @@ Both quantities measure effective dimension, but they weight the spectrum differ
 
 \subsection{Low-Rank Approximation Error}
 
-The final diagnostic is spectral compressibility. If \(M_k\) is the best rank-\(k\) approximation to \(M\), then the Eckart--Young theorem gives
+The final diagnostic is spectral compressibility. If \(M_k\) is the best rank-\(k\) approximation to \(M\), then the Eckart--Young theorem~\cite{eckart1936approximation} gives
 \[
     \|M-M_k\|_F^2
     =
@@ -904,7 +904,7 @@ $\operatorname{std}(\operatorname{diag}(G))$  & $52.5$  & $\mathbf{0.013}$ & $2.
 $\kappaeff(X)$    & $669$  & $884$    & $634$ & $606$ & $\mathbf{562}$ \\
 $\srank(X)$       & $2.42$ & $2.22$   & $2.36$ & $2.38$ & $2.40$ \\
 $\erank(X)$       & $169$  & $174$    & $176$ & $179$ & $\mathbf{183}$ \\
-$\operatorname{err}_{32}(X)$ & $\mathbf{0.336}$ & $0.363$ & $0.360$ & $0.372$ & $0.383$ \\
+$\operatorname{err}_{32}(X)$ & $0.336$ & $0.363$ & $0.360$ & $0.372$ & $0.383$ \\
 \bottomrule
 \end{tabular}
 \caption{Headline diagnostics at \textsf{layer\_6}. LN matches the predicted row isometry up to the $\varepsilon$ regularization; DyT $\alpha=1.0$ is best conditioned and has the highest effective rank; low-rank error and stable rank agree to within a few percent across all transforms.}
@@ -970,13 +970,6 @@ Ruibin Xiong, Yunchang Yang, Di He, Kai Zheng, Shuxin Zheng, Chen Xing,
 Huishuai Zhang, Yanyan Lan, Liwei Wang, and Tie-Yan Liu.
 \newblock On Layer Normalization in the Transformer Architecture.
 \newblock In \emph{International Conference on Machine Learning}, 2020.
-
-\bibitem{xiong2021nystromformer}
-Yunyang Xiong, Zhanpeng Zeng, Rudrasis Chakraborty, Mingxing Tan,
-Glenn Fung, Yin Li, and Vikas Singh.
-\newblock Nystr{\"o}mformer: A Nystr{\"o}m-Based Algorithm for Approximating Self-Attention.
-\newblock In \emph{Proceedings of the AAAI Conference on Artificial Intelligence},
-volume 35, number 16, pages 14138--14148, 2021.
 
 \bibitem{zhang2019rmsnorm}
 Biao Zhang and Rico Sennrich.
