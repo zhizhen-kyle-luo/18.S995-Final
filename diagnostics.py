@@ -25,17 +25,15 @@ Outputs (in --output_dir)
 
 Install
 -------
-  pip install torch transformers numpy pandas matplotlib tqdm
+  uv sync
 
 Run (fast, feature/Gram only)
 ------------------------------
-  python experiments/distilbert_ln_dyt_diagnostics.py \
-      --num_texts 40 --max_tokens 256 --skip_attention
+  uv run python diagnostics.py --num_texts 40 --max_tokens 256 --skip_attention
 
 Run (full, ~2 min on CPU)
 --------------------------
-  python experiments/distilbert_ln_dyt_diagnostics.py \
-      --num_texts 120 --max_tokens 512
+  uv run python diagnostics.py --num_texts 120 --max_tokens 512
 """
 
 from __future__ import annotations
