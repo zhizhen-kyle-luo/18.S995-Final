@@ -787,9 +787,10 @@ def main() -> None:
         for t_idx in tqdm(range(n_transformer_layers), desc="Attention diagnostics"):
             if not attention_ok:
                 break
+            # attention layer t_idx (1-indexed in label) consumes hidden_by_state[t_idx]
+            # as its input, which is the output of the previous block (or the embedding).
             layer_label = state_name(t_idx + 1)
-            # Use output of transformer layer t_idx as X
-            state_batches = hidden_by_state[t_idx + 1]
+            state_batches = hidden_by_state[t_idx]
 
             try:
                 for transform, alpha in transforms:
