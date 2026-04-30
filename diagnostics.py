@@ -147,7 +147,8 @@ def apply_transform(
     if transform == "ln":
         return core_ln(X, eps=eps)
     if transform == "dyt":
-        assert alpha is not None, "alpha required for dyt"
+        if alpha is None:
+            raise ValueError("alpha required for dyt transform")
         return core_dyt(X, alpha=alpha)
     raise ValueError(f"Unknown transform: {transform!r}")
 
@@ -203,7 +204,8 @@ def collect_hidden_states(
                 hidden_by_state[i].append(h)
             masks.append(enc["attention_mask"].detach().cpu())
 
-    assert hidden_by_state is not None
+    if hidden_by_state is None:
+        raise RuntimeError("no hidden states collected (empty input?)")
     return hidden_by_state, masks
 
 
@@ -678,9 +680,10 @@ def main() -> None:
     # hidden_by_state[l]   = output of transformer layer l   (l = 1..n_layers)
     n_transformer_layers = model.config.n_layers
     n_states = len(hidden_by_state)
-    assert n_states == n_transformer_layers + 1, (
-        f"Expected {n_transformer_layers + 1} hidden states, got {n_states}."
-    )
+    if n_states != n_transformer_layers + 1:
+        raise RuntimeError(
+            f"expected {n_transformer_layers + 1} hidden states, got {n_states}"
+        )
 
     def state_name(idx: int) -> str:
         return "embed" if idx == 0 else f"layer_{idx}"
