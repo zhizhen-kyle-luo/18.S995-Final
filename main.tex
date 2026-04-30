@@ -66,7 +66,7 @@ Massachusetts Institute of Technology}
 \maketitle
 
 \begin{abstract}
-Recent work on Dynamic Tanh (DyT) shows that transformer normalization layers can often be replaced by the elementwise map \(\DyT(x)=\tanh(\alpha x)\) while preserving strong task performance. This paper asks whether that replacement also preserves the numerical structure of the matrices inside a transformer. We compare core, non-affine LayerNorm and DyT maps via the effective condition number, stable rank, and rank-$k$ approximation error of feature matrices, Gram matrices, and attention score matrices from DistilBERT, together with a first-order perturbation bound on the attention scores. Theoretically, LayerNorm is a projection-rescaling map: it removes the all-ones direction, fixes row norms, and forces $G_{ii}=d$. DyT is a coordinatewise saturation: it bounds rows in $[-1,1]^d$ and contracts saturated coordinates without removing global shift or scale. Empirically, the sharpest distinction is the Gram diagonal: LayerNorm fixes it at $d$ up to the $\varepsilon$ regularization, while DyT produces input-dependent diagonals controlled by $\alpha$. Rank-$32$ approximation error and the relative attention perturbation $\|\Delta S\|_F/\|S\|_F$ are close across transforms; stable rank shows a consistent gap (DyT $>$ LN at every layer); the effective condition number separates the maps but with no consistent layer ordering. Thus task-level similarity between LayerNorm and DyT does not imply full numerical equivalence.
+Recent work on Dynamic Tanh (DyT) shows that transformer normalization layers can often be replaced by the elementwise map \(\DyT(x)=\tanh(\alpha x)\) while preserving strong task performance. This paper asks whether that replacement also preserves the numerical structure of the matrices inside a transformer. We compare core, non-affine LayerNorm and DyT on three matrix types from DistilBERT: feature matrices, Gram matrices, and attention score matrices. The diagnostics are the effective condition number, stable rank, rank-$k$ approximation error, and a first-order perturbation bound on the attention scores. Theoretically, LayerNorm is a projection-rescaling map: it removes the all-ones direction, fixes all row norms to the same value, and forces every token's self-similarity (the diagonal of the row Gram matrix) to the hidden dimension $d$. DyT is a coordinatewise saturation: it bounds each coordinate to $[-1,1]$ and contracts saturated coordinates without removing global shift or scale. Empirically, the sharpest distinction is the Gram diagonal: LayerNorm fixes it at $d$ up to the $\varepsilon$ regularization, while DyT produces input-dependent diagonals controlled by $\alpha$. Rank-$32$ approximation error and the relative attention perturbation $\|\Delta S\|_F/\|S\|_F$ are close across transforms; stable rank shows a consistent gap (DyT $>$ LN at every layer); the effective condition number separates the maps but with no consistent layer ordering. Thus task-level similarity between LayerNorm and DyT does not imply full numerical equivalence.
 \end{abstract}
 
 \section{Introduction}
@@ -85,7 +85,7 @@ and maps
 \end{equation}
 Thus, LayerNorm is a nonlinear rowwise transformation applied repeatedly to hidden-state matrices inside the model.
 
-Recent work has increasingly questioned which parts of normalization are actually necessary in transformers. The original Transformer used normalization together with residual connections and scaled dot-product attention \cite{vaswani2017attention}, and LayerNorm was introduced as a normalization method based on per-example, within-layer statistics rather than batch statistics \cite{ba2016layer}. RMSNorm weakens LayerNorm by removing the recentering operation while keeping a rescaling mechanism, suggesting that mean subtraction is not always essential for strong performance \cite{zhang2019rmsnorm}. Other work studies normalization through placement and scaling: analyses of Pre-LN and Post-LN transformers show that LayerNorm placement affects gradient behavior and training stability, while NormFormer and DeepNet modify normalization or residual scaling to improve optimization and enable deeper models \cite{xiong2020layernorm,shleifer2021normformer,wang2022deepnet}. Dynamic Tanh (DyT) pushes this line of work further by replacing normalization layers with the coordinatewise map
+Recent work has increasingly questioned which parts of normalization are actually necessary in transformers. Before transformers, Batch Normalization was the dominant approach, normalizing activations across the batch dimension. LayerNorm replaced it by normalizing within each example across the feature dimension, removing the dependence on batch statistics \cite{ba2016layer}. The original Transformer adopted LayerNorm from the start \cite{vaswani2017attention}. Subsequent work has probed how much of LayerNorm is essential: RMSNorm removes the mean-subtraction step while keeping rescaling, with little loss in performance \cite{zhang2019rmsnorm}; analyses of Pre-LN and Post-LN placement show that where LayerNorm sits affects gradient behavior and training stability; and NormFormer and DeepNet modify normalization or residual scaling to improve optimization and enable deeper models \cite{xiong2020layernorm,shleifer2021normformer,wang2022deepnet}. Dynamic Tanh (DyT) pushes this line of work further by replacing normalization layers entirely with the coordinatewise map
 \begin{equation}
     \DyT(x)=\tanh(\alpha x),
     \qquad
@@ -115,7 +115,7 @@ where \(W_{Q,\ell}\) and \(W_{K,\ell}\) are the query and key projection matrice
 \end{equation}
 where \(d_k\) is the key dimension. Thus \(G_\ell\) measures geometry directly in feature space, while \(S_\ell\) measures geometry after learned query and key projections.
 
-This paper treats LayerNorm and DyT as numerical maps and asks which matrix-level properties they preserve. LayerNorm behaves as a rowwise projection-rescaling map: its local linearization removes shift and radial perturbation directions. DyT behaves as a coordinatewise saturation map: its Jacobian is diagonal and contracts saturated coordinates. We connect these structural differences to the effective condition number, stable rank, and rank-$k$ approximation error of \(X_\ell\), \(G_\ell\), and \(S_\ell\), and to a first-order perturbation bound on the attention scores, then test them in one controlled DistilBERT case study. The goal is not to rank the two operations universally, but to separate task-level replacement from matrix-level equivalence.
+This paper treats LayerNorm and DyT as numerical maps and asks which matrix-level properties they preserve. LayerNorm behaves as a rowwise projection-rescaling map: its local linearization removes shift and radial perturbation directions. DyT behaves as a coordinatewise saturation map: its Jacobian is diagonal and contracts saturated coordinates. We connect these structural differences to four diagnostics applied to \(X_\ell\), \(G_\ell\), and \(S_\ell\): effective condition number, stable rank, rank-$k$ approximation error, and a first-order perturbation bound on the attention scores. We then test these in one controlled DistilBERT case study. The goal is not to rank the two operations universally, but to separate task-level replacement from matrix-level equivalence.
 
 \section{LayerNorm and DyT as Matrix Maps}
 \label{sec:maps}
@@ -143,7 +143,7 @@ In this section, we analyze the core non-affine maps
 \]
 This matches the controlled comparison used later: we isolate what centering, rescaling, and saturation do to the same feature matrix before learned affine parameters are allowed to change the geometry.
 
-Table~\ref{tab:ln-dyt-map-summary} summarizes the three comparisons developed below. First, LayerNorm imposes exact output constraints, while DyT only bounds coordinates. Second, their Jacobians have different perturbation mechanisms: LayerNorm removes structured directions, while DyT contracts coordinates independently. Third, these row-level differences appear in Gram matrices: LayerNorm fixes the diagonal and trace, while DyT only bounds them.
+Table~\ref{tab:ln-dyt-map-summary} summarizes the three comparisons developed below. First, LayerNorm imposes exact output constraints, while DyT only bounds coordinates. Second, their Jacobians have different perturbation mechanisms: LayerNorm removes structured directions, while DyT contracts coordinates independently. Third, these row-level differences appear in Gram matrices: LayerNorm fixes the diagonal, while DyT only bounds it.
 
 \begin{table}[h]
 \centering
@@ -180,14 +180,18 @@ Then
 \end{proposition}
 
 \begin{proof}
-This follows immediately from
 \[
     z^\top\one
     =
-    \frac{\sum_{j=1}^d x_j-d\mu}{\sigma}
-    =0,
+    \sum_{j=1}^d z_j
+    =
+    \sum_{j=1}^d \frac{x_j-\mu}{\sigma}
+    =
+    \frac{1}{\sigma}\sum_{j=1}^d (x_j-\mu)
+    =
+    \frac{d\mu - d\mu}{\sigma}
+    =0.
 \]
-because \(\mu=d^{-1}\sum_{j=1}^d x_j\).
 \end{proof}
 
 \begin{proposition}[LayerNorm fixes row norms]
@@ -202,16 +206,20 @@ Then
 \end{proposition}
 
 \begin{proof}
-By the definition of \(\sigma^2\),
 \[
     \|z\|_2^2
     =
-    \frac{\sum_{j=1}^d (x_j-\mu)^2}{\sigma^2}
+    \sum_{j=1}^d z_j^2
+    =
+    \sum_{j=1}^d \frac{(x_j-\mu)^2}{\sigma^2}
+    =
+    \frac{1}{\sigma^2}\sum_{j=1}^d (x_j-\mu)^2
     =
     \frac{d\sigma^2}{\sigma^2}
     =
-    d.
+    d,
 \]
+where the last equality uses \(\sigma^2 = \frac{1}{d}\sum_{j=1}^d(x_j-\mu)^2\).
 \end{proof}
 Together, these propositions show that, whenever \(\sigma(x)>0\), LayerNorm maps \(x\) to the sphere of radius \(\sqrt d\) inside the mean-zero subspace. Equivalently, if \(X_{\LN}\in\mathbb R^{n\times d}\) is obtained by applying LayerNorm rowwise, then
 \begin{equation}
@@ -220,17 +228,23 @@ Together, these propositions show that, whenever \(\sigma(x)>0\), LayerNorm maps
 \end{equation}
 where \(\one_d\in\mathbb R^d\) is the all-ones vector and \(\mathbf 0_n\in\mathbb R^n\) is the zero vector. Thus every normalized token representation lies in the mean-zero subspace of \(\mathbb R^d\), and every row has Euclidean norm \(\sqrt d\).
 
-LayerNorm also has exact invariances. For any \(a\in\R\),
+LayerNorm also has exact invariances. Adding \(a\one\) shifts the mean by \(a\) but leaves the centered vector unchanged:
+\[
+    (x+a\one)-\mu(x+a\one)\one
+    =
+    x-\mu(x)\one.
+\]
+Thus, for any \(a\in\R\),
 \begin{equation}
-    \LN(x+a\one)=\LN(x),
+    \LN(x+a\one)=\LN(x).
 \label{eq:ln-shift-invariance}
 \end{equation}
-and for any \(b>0\),
+Multiplying by \(b\) scales the centered vector by \(b\) and the standard deviation by \(|b|\). Therefore, for any \(b>0\),
 \begin{equation}
     \LN(bx)=\LN(x).
 \label{eq:ln-scale-invariance}
 \end{equation}
-For \(b<0\), \(\LN(bx)=-\LN(x)\). Thus LayerNorm discards global shift and positive radial scale, not merely locally but exactly.
+For \(b<0\), the same calculation gives \(\LN(bx)=-\LN(x)\). Thus LayerNorm discards global shift and positive radial scale, not merely locally but exactly.
 
 DyT gives a different constraint. Since DyT is applied coordinatewise,
 \[
@@ -273,6 +287,12 @@ and let
 \]
 For \(c\neq 0\),
 \[
+    \sigma(x)^2
+    =
+    \frac{1}{d}\sum_{j=1}^d (x_j-\mu(x))^2
+    =
+    \frac{\|c\|_2^2}{d},
+    \qquad
     \sigma(x)=\frac{\|c\|_2}{\sqrt d}
 \]
 and therefore
@@ -313,25 +333,65 @@ and
 \end{proposition}
 
 \begin{proof}
-The standard differential of vector normalization is
+Let \(N(u)=u/\|u\|_2\). The standard Jacobian of vector normalization is
 \[
-    D\!\left(\frac{c}{\|c\|_2}\right)
+    J_N(u)
     =
-    \frac{1}{\|c\|_2}
-    \left(I-\frac{cc^\top}{\|c\|_2^2}\right).
+    \frac{1}{\|u\|_2}
+    \left(I-\frac{uu^\top}{\|u\|_2^2}\right).
 \]
-Since \(\LN(x)=\sqrt d\,Px/\|Px\|_2\), the chain rule gives
+Now \(\LN(x)=\sqrt d\,N(Px)\). The inner map \(x\mapsto Px\) has Jacobian \(P\), and its value at \(x\) is \(c=Px\). The multivariable chain rule gives
+\[
+    J_{\LN}(x)
+    =
+    \sqrt d\,J_N(c)P
+    =
+    \sqrt d\,
+    \frac{1}{\|c\|_2}
+    \left(I-\frac{cc^\top}{\|c\|_2^2}\right)P.
+\]
+Using \(\sigma(x)=\|c\|_2/\sqrt d\), this becomes
 \[
     J_{\LN}(x)
     =
     \frac{1}{\sigma(x)}
     \left(I-\frac{cc^\top}{\|c\|_2^2}\right)P.
 \]
-Using \(P^2=P\), \(Pc=c\), and \(P=I-d^{-1}\one\one^\top\) gives \eqref{eq:ln-jacobian}. The null identities follow from \(P\one=0\) and
+Since \(P^\top=P\) and \(Pc=c\), we have \(c^\top P=c^\top\), so
 \[
-    \left(I-\frac{cc^\top}{\|c\|_2^2}\right)c=0.
+    \left(I-\frac{cc^\top}{\|c\|_2^2}\right)P
+    =
+    P-\frac{cc^\top}{\|c\|_2^2}
+    =
+    I-\frac{1}{d}\one\one^\top-\frac{cc^\top}{\|c\|_2^2},
 \]
-Finally, \(P-cc^\top/\|c\|_2^2\) is an orthogonal projection, so its spectral norm is at most \(1\), proving \eqref{eq:ln-jacobian-norm}.
+which gives \eqref{eq:ln-jacobian}. The null identities are checked directly:
+\[
+    \left(P-\frac{cc^\top}{\|c\|_2^2}\right)\one
+    =
+    P\one-\frac{c(c^\top\one)}{\|c\|_2^2}
+    =
+    0,
+    \qquad
+    \left(P-\frac{cc^\top}{\|c\|_2^2}\right)c
+    =
+    Pc-\frac{c(c^\top c)}{\|c\|_2^2}
+    =
+    c-c
+    =
+    0.
+\]
+Finally, let \(R=cc^\top/\|c\|_2^2\). Since \(c\in\one^\perp\), we have \(PR=RP=R\), and therefore
+\[
+    (P-R)^2
+    =
+    P^2-PR-RP+R^2
+    =
+    P-R,
+    \qquad
+    (P-R)^\top=P-R.
+\]
+Thus \(P-R\) is an orthogonal projection, specifically onto \(\one^\perp\cap c^\perp\). Its eigenvalues are \(0\) or \(1\), so its spectral norm is at most \(1\), proving \eqref{eq:ln-jacobian-norm}.
 \end{proof}
 
 This result has two interpretations. First, LayerNorm is locally insensitive to adding a constant vector and to rescaling the centered vector, matching the global invariances above. Second, the factor \(1/\sigma(x)\) shows a stability tradeoff: LayerNorm fixes row energy, but the idealized Jacobian can be large when a row has very small variance. The implementation constant \(\varepsilon\) caps this blow-up.
@@ -353,7 +413,15 @@ Consequently,
 \end{proposition}
 
 \begin{proof}
-This follows from \(\frac{d}{dt}\tanh(\alpha t)=\alpha(1-\tanh^2(\alpha t))\) applied independently to each coordinate. The Jacobian is therefore diagonal with entries in \([0,\alpha]\), so its spectral norm is at most \(\alpha\).
+For each coordinate, the chain rule gives
+\[
+    \frac{d}{dt}\tanh(\alpha t)
+    =
+    \alpha\,\sech^2(\alpha t)
+    =
+    \alpha(1-\tanh^2(\alpha t)).
+\]
+Since the coordinates do not mix, the Jacobian is diagonal with entries in \([0,\alpha]\), so its spectral norm is at most \(\alpha\).
 \end{proof}
 
 For \(\tanh\), saturation means that large positive or negative inputs are mapped near \(\pm 1\), with vanishing derivative. Thus DyT attenuates perturbations coordinate by coordinate, with the strongest attenuation on saturated coordinates. This is a different stability mechanism from LayerNorm: DyT contracts coordinates independently, while LayerNorm removes the structured directions \(\one\) and \(c\).
@@ -374,27 +442,19 @@ measure pairwise similarity. Since
 \]
 Gram entries generally mix row magnitude and row direction.
 
-\begin{proposition}[LayerNorm fixes the Gram diagonal and trace]
+\begin{proposition}[LayerNorm fixes the Gram diagonal]
 Let \(Z\in\R^{n\times d}\) be obtained by applying LayerNorm rowwise, and let \(G=ZZ^\top\). Then
 \begin{equation}
     G_{ii}=d
 \label{eq:ln-gram-diagonal}
 \end{equation}
-for every \(i\), and
-\begin{equation}
-    \operatorname{tr}(G)=nd.
-\label{eq:ln-gram-trace}
-\end{equation}
+for every \(i\).
 \end{proposition}
 
 \begin{proof}
 Each row \(z_i\) of \(Z\) is LayerNormed, so Proposition~2 gives
 \[
-    \|z_i\|_2^2=d.
-\]
-Since \(G_{ii}=z_i^\top z_i=\|z_i\|_2^2\), we have \(G_{ii}=d\). Summing over \(i\) gives
-\[
-    \operatorname{tr}(G)=\sum_{i=1}^n G_{ii}=nd.
+    G_{ii}=z_i^\top z_i=\|z_i\|_2^2=d.
 \]
 \end{proof}
 
@@ -404,17 +464,13 @@ Thus LayerNorm removes row-magnitude variation from the Gram matrix. The diagona
 \]
 so off-diagonal entries depend only on row directions, not row magnitudes.
 
-\begin{proposition}[DyT bounds the Gram diagonal and trace]
+\begin{proposition}[DyT bounds the Gram diagonal]
 Let \(Y\in\R^{n\times d}\) be obtained by applying DyT rowwise, and let \(G=YY^\top\). Then
 \begin{equation}
     0\leq G_{ii}\leq d
 \label{eq:dyt-gram-diagonal}
 \end{equation}
-for every \(i\), and
-\begin{equation}
-    0\leq \operatorname{tr}(G)\leq nd.
-\label{eq:dyt-gram-trace}
-\end{equation}
+for every \(i\).
 \end{proposition}
 
 \begin{proof}
@@ -422,13 +478,9 @@ Each coordinate of \(y_i=\DyT(x_i)\) lies in \([-1,1]\), so
 \[
     0\leq G_{ii}=\|y_i\|_2^2\leq d.
 \]
-Summing over \(i\) gives
-\[
-    0\leq \operatorname{tr}(G)=\sum_{i=1}^n G_{ii}\leq nd.
-\]
 \end{proof}
 
-DyT does not remove row-magnitude variation. Its diagonal entries can vary across tokens, and its trace depends on how large the DyT-transformed rows are. For \(i\neq j\),
+DyT does not remove row-magnitude variation. Its diagonal entries can vary across tokens according to how large the DyT-transformed rows are. For \(i\neq j\),
 \[
     G_{ij}=y_i^\top y_j=\|y_i\|_2\|y_j\|_2\cos\theta_{ij},
 \]
@@ -483,7 +535,19 @@ Moreover,
 \end{proposition}
 
 \begin{proof}
-Expanding \(\widetilde S - S\) and subtracting \(S = QK^\top/\sqrt{d_k}\) gives the formula for \(\Delta S\). Applying the triangle inequality and submultiplicativity \(\|AB\|_2\le\|A\|_2\|B\|_2\) to each term, then dividing by \(\|S\|_2=\|QK^\top\|_2/\sqrt{d_k}\), gives \eqref{eq:attention-relative-perturbation}.
+Expanding \(\widetilde S-S\) gives the stated expression for \(\Delta S\). Hence
+\[
+    \|\Delta S\|_2
+    \leq
+    \frac{
+        \|\Delta QK^\top\|_2+\|Q\Delta K^\top\|_2+\|\Delta Q\Delta K^\top\|_2
+    }{\sqrt{d_k}}
+    \leq
+    \frac{
+        \|\Delta Q\|_2\|K\|_2+\|Q\|_2\|\Delta K\|_2+\|\Delta Q\|_2\|\Delta K\|_2
+    }{\sqrt{d_k}}.
+\]
+Dividing by \(\|S\|_2=\|QK^\top\|_2/\sqrt{d_k}\) gives \eqref{eq:attention-relative-perturbation}.
 \end{proof}
 
 The first two terms in \eqref{eq:attention-relative-perturbation} are first-order effects from perturbing \(Q\) or \(K\) separately. The last term is second order because it contains the product of both perturbations. For small perturbations, the first-order terms dominate.
