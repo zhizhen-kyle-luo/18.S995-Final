@@ -27,9 +27,9 @@ Install
 -------
   uv sync
 
-Run (fast, feature/Gram only)
-------------------------------
-  uv run python diagnostics.py --num_texts 40 --max_tokens 256 --skip_attention
+Run (fast, feature/Gram only; writes to results_fast/ to keep canonical results/ intact)
+----------------------------------------------------------------------------------------
+  uv run python diagnostics.py --num_texts 40 --max_tokens 256 --skip_attention --output_dir results_fast
 
 Run (full, ~2 min on CPU)
 --------------------------
@@ -840,9 +840,10 @@ def main() -> None:
     low_rank_df = pd.DataFrame(low_rank_rows)
     gram_diag_df = pd.DataFrame(gram_diag_rows)
 
-    # write everything to a staging dir, then atomically replace into out_dir.
-    # this means a failure during csv-write or plotting does not leave
-    # out_dir in a half-old / half-new state.
+    # write everything to a staging dir, then move files into out_dir.
+    # not a true directory swap, but if csv-write or plotting fails the staging
+    # dir is auto-deleted and out_dir is left untouched. once we reach the move
+    # step every file already exists, so partial-update windows are minimized.
     with tempfile.TemporaryDirectory(
         dir=out_dir.parent, prefix=f".{out_dir.name}.staging."
     ) as staging_str:

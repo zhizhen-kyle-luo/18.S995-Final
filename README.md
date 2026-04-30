@@ -18,7 +18,7 @@ Outputs land in `results/`: `metrics_summary.csv`, `low_rank_errors.csv`, `gram_
 
 ## CLI flags
 
-`--num_texts`, `--max_tokens`, `--alphas` (e.g. `0.25,0.5,1.0`), `--eps`, `--rel_tol`, `--output_dir`, `--device` (`auto`/`cpu`/`cuda`/`mps`), `--skip_attention`, `--text_file`, `--perturb_scales`. Defaults match the paper.
+`--model_name`, `--num_texts`, `--batch_size`, `--max_length`, `--max_tokens`, `--alphas` (e.g. `0.25,0.5,1.0`), `--eps`, `--rel_tol`, `--output_dir`, `--device` (`auto`/`cpu`/`cuda`/`mps`), `--skip_attention`, `--text_file`, `--perturb_scales`. Defaults match the paper. Run `--help` for full descriptions.
 
 ## Repo
 
