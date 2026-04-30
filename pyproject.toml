@@ -1,7 +1,7 @@
 [project]
 name = "18-s995"
 version = "0.1.0"
-description = "Add your description here"
+description = "Numerical diagnostics comparing core LayerNorm and core Dynamic Tanh on DistilBERT hidden states (18.S995 final project)."
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.10.9",

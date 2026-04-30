@@ -5,7 +5,10 @@ build/
 dist/
 wheels/
 *.egg-info
-*.md
+CLAUDE.md
 
 # Virtual environments
 .venv
+
+# macOS
+.DS_Store
