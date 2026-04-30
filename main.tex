@@ -848,7 +848,7 @@ For each $X_{\ell,T}$, $G_{\ell,T}$, and $S_{\ell,T,h}$ we report singular value
 
 For attention we add a perturbation test: at relative scales $\eta\in\{10^{-4},10^{-3},10^{-2}\}$, we draw Gaussian $\Delta Q,\Delta K$ rescaled so that $\|\Delta Q\|_F/\|Q\|_F=\|\Delta K\|_F/\|K\|_F=\eta$, form $\widetilde S=(Q+\Delta Q)(K+\Delta K)^\top/\sqrt{d_k}$, and report $\|\Delta S\|_F/\|S\|_F$ and $\|\Delta S\|_2/\|S\|_2$ averaged over heads and sequences. This is the discrete instance of the bound \eqref{eq:attention-relative-perturbation}.
 
-All SVDs are computed in float64 on CPU. Per-head attention metrics average over up to $32$ sequences and $12$ heads.
+All SVDs are computed in float64 on CPU. Per-head attention spectral metrics average over up to $32$ sequences and all $12$ heads; the perturbation test uses up to $16$ sequences.
 
 \section{Results}
 \label{sec:results}
@@ -869,7 +869,7 @@ The Gram diagonal sharply confirms both predictions of Section~\ref{sec:maps}. E
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.7\linewidth]{results/fig_gram_diag_layer6_bars.png}
+\includegraphics[width=0.7\linewidth]{results/fig_gram_diag_final_bars.png}
 \caption{Gram diagonal at \textsf{layer\_6}: bar height is $\operatorname{mean}(\operatorname{diag}(G))$, error bars are one $\operatorname{std}$. LN sits at the $d=768$ prediction up to $\varepsilon$ regularization, with very small spread; DyT compresses with a tunable, $\alpha$-dependent magnitude; raw is heterogeneous.}
 \label{fig:gram-bars}
 \end{figure}
@@ -877,14 +877,14 @@ The Gram diagonal sharply confirms both predictions of Section~\ref{sec:maps}. E
 \subsection{Spectral Conditioning: DyT Is Often Better Conditioned Than LN}
 \label{sec:results-conditioning}
 
-Effective condition numbers do not simply favor LN. Figure~\ref{fig:kappa-X} shows $\kappaeff(X_{\ell,T})$ across all layers. In the middle layers ($\ell\in\{2,3,4\}$), DyT with $\alpha=1.0$ is roughly $2\times$ better conditioned than LN. At \textsf{layer\_3}, $\kappaeff$ is $41712$ (raw), $30218$ (LN), and $15105$ (DyT $\alpha=1.0$).
+Effective condition numbers do not simply favor LN. Figure~\ref{fig:kappa-X} shows $\kappaeff(X_{\ell,T})$ across all hidden states. DyT with $\alpha=1.0$ has lower $\kappaeff(X)$ than LN at every state except \textsf{layer\_5}, where LN happens to dip to a local minimum. In the middle layers ($\ell\in\{2,3,4\}$) the DyT-over-LN improvement is between $1.4\times$ and $2.0\times$. At \textsf{layer\_3}, $\kappaeff$ is $41712$ (raw), $30217$ (LN), and $15104$ (DyT $\alpha=1.0$).
 
 This is consistent with Section~\ref{sec:maps}. The LN Jacobian satisfies $\|J_{\LN}(x)\|_2\le 1/\sigma(x)$ \eqref{eq:ln-jacobian-norm}; this factor inflates LN's local sensitivity precisely on rows whose variance $\sigma(x)$ is small. The DyT Jacobian \eqref{eq:dyt-jacobian} is uniformly bounded by $\alpha$. Section~\ref{sec:maps} did not claim LN was better conditioned, only that LN removes the shift and radial directions; the data clarifies that this set of invariances can coincide with worse conditioning when row variance is not bounded away from zero. By Section~\ref{sec:diagnostics}, $\kappa(G)=\kappa(X)^2$ on the nonzero spectral subspace, so the same ordering holds for $G$ at squared magnitudes.
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.75\linewidth]{results/fig_kappa_eff_X.png}
-\caption{Effective condition number $\kappaeff(X_{\ell,T})$ across hidden states. DyT is comparable to or better conditioned than LN through layers $1$--$5$.}
+\caption{Effective condition number $\kappaeff(X_{\ell,T})$ across hidden states. DyT $\alpha=1.0$ is better conditioned than LN at every state except \textsf{layer\_5}.}
 \label{fig:kappa-X}
 \end{figure}
 
@@ -925,7 +925,7 @@ At a $1\%$ relative perturbation of $Q$ and $K$, the mean response $\|\Delta S\|
 
 The data answers the title question with a split. LN and DyT differ sharply in row-norm geometry: LN imposes row isometry on the hidden states up to the $\varepsilon$ regularization, while DyT permits $\alpha$-dependent row magnitudes that vary with input. This is the cleanest empirical confirmation of Section~\ref{sec:maps}. Among the remaining diagnostics, low-rank approximability and attention perturbation response are similar across transforms; conditioning and stable rank show smaller but systematic differences. The row-norm axis, not the global spectral profile, is where these two maps are most clearly distinguished.
 
-The conditioning result refines the picture. The LN Jacobian bound $\|J_{\LN}\|_2\le 1/\sigma(x)$ \eqref{eq:ln-jacobian-norm} is loose precisely on rows with small variance, which we observe in DistilBERT's middle layers. The DyT Jacobian is bounded uniformly by $\alpha$. The empirical conditioning order --- DyT comparable to or better than LN through layers $1$--$5$ --- is consistent with the proven Jacobian bounds and indicates that LN's exact invariances to shift and radial scale can coincide with worse conditioning when the data does not stay away from constant rows.
+The conditioning result refines the picture. The LN Jacobian bound $\|J_{\LN}\|_2\le 1/\sigma(x)$ \eqref{eq:ln-jacobian-norm} is loose precisely on rows with small variance, which we observe in DistilBERT's middle layers. The DyT Jacobian is bounded uniformly by $\alpha$. The empirical conditioning order --- DyT better conditioned than LN at every hidden state except \textsf{layer\_5} --- is consistent with the proven Jacobian bounds and indicates that LN's exact invariances to shift and radial scale can coincide with worse conditioning when the data does not stay away from constant rows.
 
 The relative agreement of low-rank error and attention perturbation response across transforms (effective rank also agrees within roughly $10\%$) is informative. These quantities depend on the gross spectral envelope and on the structure of $QK^\top$, neither of which is strongly reshaped by a row-by-row map. Row-norm structure, by contrast, is a row-level property and is therefore exactly what most cleanly differentiates LN from DyT in this experiment.
 
@@ -933,7 +933,7 @@ The relative agreement of low-rank error and attention perturbation response acr
 
 \section{Conclusion}
 
-Treating LayerNorm and DyT as numerical maps reveals a clean split. The two are not equivalent at the row-norm level: LN enforces row isometry up to the $\varepsilon$ regularization, while DyT compresses row magnitudes with a tunable $\alpha$. Low-rank approximability and attention perturbation response are similar across transforms; conditioning and stable rank show smaller but systematic differences. The conditioning order --- DyT comparable to or better than LN in middle layers --- is consistent with Section~\ref{sec:maps} once one recognizes that the $1/\sigma(x)$ factor in the LN Jacobian is loose on rows with small variance. The empirical picture --- row geometry differs, global spectrum largely agrees --- suggests that the role of LayerNorm in transformers may be cleanly decomposed into a row-norm component and a spectral component, and that hybrid normalization variants targeting only one of the two may be a principled direction for future work.
+Treating LayerNorm and DyT as numerical maps reveals a clean split. The two are not equivalent at the row-norm level: LN enforces row isometry up to the $\varepsilon$ regularization, while DyT compresses row magnitudes with a tunable $\alpha$. Low-rank approximability and attention perturbation response are similar across transforms; conditioning and stable rank show smaller but systematic differences. The conditioning order --- DyT better conditioned than LN at every hidden state we measure except \textsf{layer\_5} --- is consistent with Section~\ref{sec:maps} once one recognizes that the $1/\sigma(x)$ factor in the LN Jacobian is loose on rows with small variance. The empirical picture --- row geometry differs, global spectrum largely agrees --- suggests that the role of LayerNorm in transformers may be cleanly decomposed into a row-norm component and a spectral component, and that hybrid normalization variants targeting only one of the two may be a principled direction for future work.
 
 \bibliographystyle{plainnat}
 

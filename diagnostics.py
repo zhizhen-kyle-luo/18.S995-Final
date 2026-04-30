@@ -88,12 +88,12 @@ _BASE_TEXTS: List[str] = [
 
 def get_texts(num_texts: int, text_file: Optional[str] = None) -> List[str]:
     if text_file is not None:
-        with open(text_file) as fh:
+        with open(text_file, encoding="utf-8") as fh:
             base = [line.strip() for line in fh if line.strip()]
     else:
         base = _BASE_TEXTS
     if not base:
-        raise ValueError("No texts available.")
+        raise ValueError("no texts available")
     return (base * (num_texts // len(base) + 1))[:num_texts]
 
 
@@ -116,14 +116,14 @@ def choose_device(name: str) -> torch.device:
 
 
 def core_ln(X: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
-    """Rowwise zero-mean unit-variance normalization."""
+    """rowwise zero-mean unit-variance normalization."""
     mu = X.mean(dim=-1, keepdim=True)
     var = ((X - mu) ** 2).mean(dim=-1, keepdim=True)
     return (X - mu) / torch.sqrt(var + eps)
 
 
 def core_dyt(X: torch.Tensor, alpha: float) -> torch.Tensor:
-    """Elementwise tanh(alpha * X)."""
+    """elementwise tanh(alpha * X)."""
     return torch.tanh(alpha * X)
 
 
@@ -175,7 +175,7 @@ def collect_hidden_states(
     masks: List[torch.Tensor] = []
 
     with torch.no_grad():
-        for start in tqdm(range(0, len(texts), batch_size), desc="Extracting hidden states"):
+        for start in tqdm(range(0, len(texts), batch_size), desc="extracting hidden states"):
             batch_texts = texts[start : start + batch_size]
             enc = tokenizer(
                 batch_texts,
@@ -228,21 +228,16 @@ def spectrum_metrics(s: np.ndarray, rel_tol: float = 1e-6) -> Dict:
     if len(s) == 0 or s[0] <= 0:
         raise ValueError("spectrum is empty or has non-positive top singular value")
 
-    thresh = rel_tol * s[0]
-    keep = s[s > thresh]
+    keep = s[s > rel_tol * s[0]]
     numerical_rank = int(len(keep))
-    kappa_eff = float(keep[0] / keep[-1]) if numerical_rank > 0 else np.nan
+    kappa_eff = float(keep[0] / keep[-1])
 
     fro_sq = float(np.sum(s ** 2))
     stable_rank = float(fro_sq / s[0] ** 2)
     fro_norm = float(np.sqrt(fro_sq))
 
-    s_sum = float(np.sum(s))
-    if s_sum > 0:
-        p = s / s_sum
-        effective_rank = float(np.exp(-np.sum(p * np.log(p + 1e-300))))
-    else:
-        effective_rank = np.nan
+    p = s / float(np.sum(s))
+    effective_rank = float(np.exp(-np.sum(p * np.log(p + 1e-300))))
 
     return dict(
         sigma1=float(s[0]),
@@ -260,14 +255,16 @@ def compute_svd_metrics(M: torch.Tensor, rel_tol: float) -> Tuple[Dict, np.ndarr
 
 
 def compute_low_rank_errors(s: np.ndarray, ks: List[int]) -> Dict[int, float]:
-    """Relative Frobenius best rank-k approximation error."""
+    """relative Frobenius best rank-k approximation error.
+
+    assumes s passed by spectrum_metrics; that function rejects empty/zero spectra,
+    so denom > 0 here.
+    """
     s = np.asarray(s, dtype=np.float64)
-    denom = np.sum(s ** 2)
+    denom = float(np.sum(s ** 2))
     out: Dict[int, float] = {}
     for k in ks:
-        if denom <= 0:
-            out[k] = np.nan
-        elif k >= len(s):
+        if k >= len(s):
             out[k] = 0.0
         else:
             out[k] = float(np.sqrt(np.sum(s[k:] ** 2) / denom))
@@ -584,7 +581,7 @@ def make_plots(
                path=out_dir / "fig_gram_diag_mean.png")
 
     plot_gram_diag_bars(gd, layer=final_layer,
-                        path=out_dir / "fig_gram_diag_layer6_bars.png",
+                        path=out_dir / "fig_gram_diag_final_bars.png",
                         d=hidden_dim, transforms=transforms)
 
     for matrix in ["X", "G"]:
@@ -600,9 +597,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model_name", type=str, default="distilbert-base-uncased")
     p.add_argument("--num_texts", type=int, default=120)
     p.add_argument("--batch_size", type=int, default=16)
-    p.add_argument("--max_length", type=int, default=64)
+    p.add_argument("--max_length", type=int, default=64,
+                   help="tokenizer truncation length per sequence.")
     p.add_argument("--max_tokens", type=int, default=512,
-                   help="Max non-padding tokens per layer matrix.")
+                   help="cap on rows in the per-layer feature matrix; subsamples when exceeded.")
     p.add_argument("--alphas", type=str, default="0.25,0.5,1.0",
                    help="Comma-separated DyT alpha values.")
     p.add_argument("--eps", type=float, default=1e-5)
@@ -679,7 +677,7 @@ def run_feature_gram_diagnostics(
                 layer=layer, matrix_type="X",
                 transform=transform, alpha=np.nan if alpha is None else alpha,
                 n_rows=X.shape[0], n_cols=X.shape[1],
-                top_sv=met_X.get("sigma1", np.nan), **met_X,
+                **met_X,
             ))
             for k, err in compute_low_rank_errors(sX, ks).items():
                 low_rank.append(dict(
@@ -699,7 +697,7 @@ def run_feature_gram_diagnostics(
                 layer=layer, matrix_type="G",
                 transform=transform, alpha=np.nan if alpha is None else alpha,
                 n_rows=G.shape[0], n_cols=G.shape[1],
-                top_sv=met_G.get("sigma1", np.nan), **met_G,
+                **met_G,
             ))
             for k, err in compute_low_rank_errors(sG, ks).items():
                 low_rank.append(dict(
@@ -750,7 +748,7 @@ def run_attention_diagnostics(
                     layer=layer, matrix_type="S",
                     transform=transform, alpha=np.nan if alpha is None else alpha,
                     n_rows=np.nan, n_cols=np.nan,
-                    top_sv=avg.get("sigma1", np.nan), **avg,
+                    **avg,
                 ))
 
             p_rows = compute_attention_perturbation(
@@ -774,7 +772,7 @@ _GENERATED_FILES = (
     "fig_spectrum_G_final.png",
     "fig_gram_diag_std.png",
     "fig_gram_diag_mean.png",
-    "fig_gram_diag_layer6_bars.png",
+    "fig_gram_diag_final_bars.png",
     "fig_low_rank_X_final.png",
     "fig_low_rank_G_final.png",
     "fig_stable_rank_X.png",
