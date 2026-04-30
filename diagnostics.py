@@ -762,6 +762,11 @@ def run_attention_diagnostics(
                 r["layer"] = layer
             perturb.extend(p_rows)
 
+    if not metrics and not perturb:
+        raise RuntimeError(
+            "attention diagnostics produced no rows; every sequence was too short "
+            "(check --max_length, --num_texts, --batch_size, or pass --skip_attention)"
+        )
     return metrics, perturb
 
 
