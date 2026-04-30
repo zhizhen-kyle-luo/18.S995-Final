@@ -840,10 +840,7 @@ def main() -> None:
     low_rank_df = pd.DataFrame(low_rank_rows)
     gram_diag_df = pd.DataFrame(gram_diag_rows)
 
-    # write everything to a staging dir, then move files into out_dir.
-    # not a true directory swap, but if csv-write or plotting fails the staging
-    # dir is auto-deleted and out_dir is left untouched. once we reach the move
-    # step every file already exists, so partial-update windows are minimized.
+    # stage all files first; if any write fails, out_dir is left untouched.
     with tempfile.TemporaryDirectory(
         dir=out_dir.parent, prefix=f".{out_dir.name}.staging."
     ) as staging_str:
