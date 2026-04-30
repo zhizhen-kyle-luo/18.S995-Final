@@ -176,12 +176,7 @@ def collect_hidden_states(
     max_length: int,
     device: torch.device,
 ) -> Tuple[List[List[torch.Tensor]], List[torch.Tensor]]:
-    """
-    Returns:
-      hidden_by_state : list[n_layers+1] of list-of-batch-tensors (B, S, D).
-        Index 0 is embedding output; index l (1-indexed) is transformer layer l output.
-      masks : list of attention_mask tensors per batch.
-    """
+    """returns (hidden_by_state, masks): index 0 is embeddings, l>=1 is layer l output."""
     hidden_by_state: Optional[List[List[torch.Tensor]]] = None
     masks: List[torch.Tensor] = []
 
@@ -215,10 +210,7 @@ def aggregate_tokens(
     max_tokens: int,
     seed: int = 42,
 ) -> torch.Tensor:
-    """
-    Flatten non-padding tokens across all batches for one hidden state.
-    If total > max_tokens, take a deterministic random subset.
-    """
+    """flatten non-padding token rows; subsample to max_tokens with fixed seed."""
     parts: List[torch.Tensor] = []
     for h, mask in zip(state_batches, masks):
         parts.append(h[mask.bool()])  # (n_valid, D)
@@ -314,10 +306,7 @@ def compute_gram_diag_summary(G: torch.Tensor) -> Dict:
 # Attention score computation
 
 def get_qk_projections(model, layer_idx: int):
-    """
-    DistilBERT: model.transformer.layer[i].attention.{q_lin, k_lin, n_heads}
-    Returns (q_lin, k_lin, n_heads, head_dim), all on CPU.
-    """
+    """returns (q_lin, k_lin, n_heads, head_dim) for distilbert layer layer_idx, on cpu."""
     try:
         attn = model.transformer.layer[layer_idx].attention
         q_lin = attn.q_lin.cpu()
@@ -345,11 +334,7 @@ def compute_attention_scores(
     eps: float,
     max_sequences: int = 32,
 ) -> List[Tuple[int, torch.Tensor]]:
-    """
-    Per-head pre-softmax score matrices S_h = Q_h K_h^T / sqrt(head_dim).
-    Uses output of transformer layer `layer_idx` as X (post-hoc controlled).
-    Returns list of (head_idx, S_matrix) for up to max_sequences sequences.
-    """
+    """per-head S_h = Q_h K_h^T / sqrt(head_dim) for up to max_sequences sequences."""
     q_lin, k_lin, n_heads, head_dim = get_qk_projections(model, layer_idx)
 
     results: List[Tuple[int, torch.Tensor]] = []
@@ -394,11 +379,7 @@ def compute_attention_perturbation(
     max_sequences: int = 16,
     seed: int = 42,
 ) -> List[Dict]:
-    """
-    Add relative Gaussian perturbations to Q and K at each scale.
-    Reports ||Delta S||_F / ||S||_F and ||Delta S||_2 / ||S||_2.
-    This connects to the perturbation-bound section of the paper.
-    """
+    """relative Gaussian perturbations of Q and K; reports ||dS||_F/||S||_F and 2-norm version."""
     q_lin, k_lin, n_heads, head_dim = get_qk_projections(model, layer_idx)
 
     rng = torch.Generator()
@@ -664,13 +645,13 @@ def main() -> None:
     perturb_scales = [float(s) for s in args.perturb_scales.split(",")]
 
     device = choose_device(args.device)
-    print(f"Device: {device}")
+    print(f"device: {device}")
 
     texts = get_texts(args.num_texts, args.text_file)
-    print(f"Texts: {len(texts)}")
+    print(f"texts: {len(texts)}")
 
     model, tokenizer = load_model(args.model_name, device)
-    print(f"Model: {args.model_name}")
+    print(f"model: {args.model_name}")
 
     hidden_by_state, masks = collect_hidden_states(
         model, tokenizer, texts, args.batch_size, args.max_length, device
