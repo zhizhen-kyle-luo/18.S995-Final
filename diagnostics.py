@@ -633,7 +633,16 @@ def parse_args() -> argparse.Namespace:
                    help="Optional path to a text file (one sentence per line).")
     p.add_argument("--perturb_scales", type=str, default="0.0001,0.001,0.01",
                    help="Comma-separated relative perturbation scales.")
-    return p.parse_args()
+    args = p.parse_args()
+
+    for name in ("num_texts", "batch_size", "max_length", "max_tokens"):
+        if getattr(args, name) < 1:
+            p.error(f"--{name} must be >= 1")
+    if args.eps <= 0:
+        p.error("--eps must be > 0")
+    if args.rel_tol <= 0:
+        p.error("--rel_tol must be > 0")
+    return args
 
 
 def state_name(idx: int) -> str:
