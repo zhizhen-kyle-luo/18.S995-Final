@@ -4,6 +4,8 @@ Final project for 18.S995, Spring 2026 — Kyle Luo.
 
 A controlled numerical case study comparing core LayerNorm and core Dynamic Tanh maps applied post-hoc to DistilBERT hidden states. See `main.tex` for the writeup.
 
+By default, the input text is `data/alice_120.txt`: 120 sentence-like segments extracted from the public-domain Project Gutenberg text of Lewis Carroll's *Alice's Adventures in Wonderland*. Use `--text_file` to run the same diagnostics on another one-sentence-per-line text file.
+
 ## Run
 
 ```bash
@@ -24,6 +26,7 @@ Outputs land in `results/`: `metrics_summary.csv`, `low_rank_errors.csv`, `gram_
 
 ```
 diagnostics.py    experiment script
+data/             fixed text input used by the paper defaults
 main.tex          paper source
 results/          CSVs + figures (auto-created)
 ```

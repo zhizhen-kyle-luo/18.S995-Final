@@ -54,48 +54,15 @@ import torch
 from tqdm.auto import tqdm
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-_BASE_TEXTS: List[str] = [
-    "Transformers use attention mechanisms to compare token representations.",
-    "Layer normalization rescales each token vector using row statistics.",
-    "Dynamic Tanh replaces normalization with a coordinatewise saturating nonlinearity.",
-    "Numerical linear algebra studies conditioning, stability, rank, and low-rank approximation.",
-    "The Gram matrix stores pairwise inner products between token representations.",
-    "Attention scores are formed from query and key matrices before the softmax operation.",
-    "A matrix with rapidly decaying singular values admits efficient low-rank approximation.",
-    "Condition numbers measure how sensitive a numerical problem is to input perturbations.",
-    "The singular value decomposition reveals the geometry of a linear transformation.",
-    "This experiment compares matrices produced by LayerNorm and Dynamic Tanh post-hoc.",
-    "Different neural network components can have similar accuracy but different matrix structure.",
-    "A controlled post-hoc comparison isolates the effect of the normalization map itself.",
-    "DistilBERT is a compact pretrained transformer model for language representations.",
-    "The hidden states of a transformer form matrices whose rows correspond to tokens.",
-    "The goal is not benchmark accuracy but numerical similarity of feature matrices.",
-    "Effective rank measures how many singular values contribute meaningfully.",
-    "Stable rank is the ratio of squared Frobenius norm to squared spectral norm.",
-    "The effective condition number ignores singular values below a relative threshold.",
-    "Low-rank approximation error decays faster when singular values decay rapidly.",
-    "Alpha controls the saturation regime of the DyT nonlinearity.",
-    "LayerNorm normalizes each token independently across the feature dimension.",
-    "Per-head attention allows different heads to capture different relational patterns.",
-    "The embedding layer maps discrete tokens to continuous vector representations.",
-    "Self-attention computes all pairwise interactions between tokens in a sequence.",
-    "Pretrained language models encode rich syntactic and semantic information.",
-    "The spectral norm of a matrix equals its largest singular value.",
-    "Frobenius norm is the square root of the sum of squared matrix entries.",
-    "Matrix conditioning determines how numerical errors propagate through computations.",
-    "DyT with small alpha behaves approximately linearly near zero.",
-    "LayerNorm is invariant to row-wise shifts and scales in the input.",
-]
+DEFAULT_TEXT_FILE = Path(__file__).resolve().parent / "data" / "alice_120.txt"
 
 
 def get_texts(num_texts: int, text_file: Optional[str] = None) -> List[str]:
-    if text_file is not None:
-        with open(text_file, encoding="utf-8") as fh:
-            base = [line.strip() for line in fh if line.strip()]
-    else:
-        base = _BASE_TEXTS
+    source = Path(text_file) if text_file is not None else DEFAULT_TEXT_FILE
+    with open(source, encoding="utf-8") as fh:
+        base = [line.strip() for line in fh if line.strip()]
     if not base:
-        raise ValueError("no texts available")
+        raise ValueError(f"no texts available in {source}")
     return (base * (num_texts // len(base) + 1))[:num_texts]
 
 
@@ -238,15 +205,11 @@ def spectrum_metrics(s: np.ndarray, rel_tol: float = 1e-6) -> Dict:
     stable_rank = float(fro_sq / s[0] ** 2)
     fro_norm = float(np.sqrt(fro_sq))
 
-    p = s / float(np.sum(s))
-    effective_rank = float(np.exp(-np.sum(p * np.log(p + 1e-300))))
-
     return dict(
         sigma1=float(s[0]),
         numerical_rank=numerical_rank,
         kappa_eff=kappa_eff,
         stable_rank=stable_rank,
-        effective_rank=effective_rank,
         fro_norm=fro_norm,
     )
 
@@ -616,7 +579,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip_attention", action="store_true",
                    help="Skip attention-score and perturbation diagnostics.")
     p.add_argument("--text_file", type=str, default=None,
-                   help="Optional path to a text file (one sentence per line).")
+                   help=f"Optional path to a text file (one sentence per line). "
+                        f"Default: {DEFAULT_TEXT_FILE}.")
     p.add_argument("--perturb_scales", type=str, default="0.0001,0.001,0.01",
                    help="Comma-separated relative perturbation scales.")
     args = p.parse_args()
