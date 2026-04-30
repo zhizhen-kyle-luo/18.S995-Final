@@ -907,14 +907,14 @@ $\erank(X)$       & $169$  & $174$    & $176$ & $179$ & $\mathbf{183}$ \\
 $\operatorname{err}_{32}(X)$ & $\mathbf{0.336}$ & $0.363$ & $0.360$ & $0.372$ & $0.383$ \\
 \bottomrule
 \end{tabular}
-\caption{Headline diagnostics at \textsf{layer\_6}. LN is exact on the row-norm axis; DyT $\alpha=1.0$ is best conditioned and has the highest effective rank; low-rank error and stable rank agree to within a few percent across all transforms.}
+\caption{Headline diagnostics at \textsf{layer\_6}. LN matches the predicted row isometry up to the $\varepsilon$ regularization; DyT $\alpha=1.0$ is best conditioned and has the highest effective rank; low-rank error and stable rank agree to within a few percent across all transforms.}
 \label{tab:layer6-summary}
 \end{table}
 
 \subsection{Low-Rank Approximability}
 \label{sec:results-lowrank}
 
-The relative Frobenius error of the best rank-$32$ approximation \eqref{eq:low-rank-error} is $0.336$ (raw), $0.363$ (LN), $0.360$ (DyT $\alpha=0.25$), $0.372$ (DyT $\alpha=0.5$), and $0.383$ (DyT $\alpha=1.0$): all five transforms lie within five percentage points of one another. Low-rank approximability is not a discriminating axis here; the diagnostic detects the differences in row geometry but the global spectral compressibility is shared.
+The relative Frobenius error of the best rank-$32$ approximation \eqref{eq:low-rank-error} is $0.336$ (raw), $0.363$ (LN), $0.360$ (DyT $\alpha=0.25$), $0.372$ (DyT $\alpha=0.5$), and $0.383$ (DyT $\alpha=1.0$): all five transforms lie within five percentage points of one another. Low-rank approximability is not a discriminating axis here. The Gram-diagonal diagnostic of Section~\ref{sec:results-gram} detects the row-geometry difference; rank-$32$ Frobenius error instead probes global spectral compressibility, and that is shared across the five matrices.
 
 \subsection{Attention Scores and Perturbation Response}
 \label{sec:results-attention}

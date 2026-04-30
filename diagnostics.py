@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -52,8 +51,6 @@ import pandas as pd
 import torch
 from tqdm.auto import tqdm
 from transformers import AutoModel, AutoTokenizer
-
-# Built-in text corpus (diverse, reproducible)
 
 _BASE_TEXTS: List[str] = [
     "Transformers use attention mechanisms to compare token representations.",
@@ -89,8 +86,6 @@ _BASE_TEXTS: List[str] = [
 ]
 
 
-# Data utilities
-
 def get_texts(num_texts: int, text_file: Optional[str] = None) -> List[str]:
     if text_file is not None:
         with open(text_file) as fh:
@@ -101,8 +96,6 @@ def get_texts(num_texts: int, text_file: Optional[str] = None) -> List[str]:
         raise ValueError("No texts available.")
     return (base * (num_texts // len(base) + 1))[:num_texts]
 
-
-# Device selection
 
 def _mps_available() -> bool:
     return getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
@@ -121,8 +114,6 @@ def choose_device(name: str) -> torch.device:
         raise RuntimeError("--device mps requested but MPS is not available on this machine.")
     return torch.device(name)
 
-
-# Core maps (no learned affine parameters)
 
 def core_ln(X: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
     """Rowwise zero-mean unit-variance normalization."""
@@ -157,16 +148,18 @@ def transform_label(transform: str, alpha: Optional[float]) -> str:
     return transform if alpha is None else f"{transform}_a{alpha}"
 
 
-# Model loading
-
 def load_model(model_name: str, device: torch.device):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name).to(device)
-    model.train(False)   # set evaluation mode without calling .eval()
+    model.train(False)
+    mtype = getattr(model.config, "model_type", None)
+    if mtype != "distilbert":
+        raise ValueError(
+            f"this script targets DistilBERT (model.transformer.layer[i].attention.q_lin etc.); "
+            f"got model_type={mtype!r}. pass --model_name pointing to a distilbert checkpoint."
+        )
     return model, tokenizer
 
-
-# Hidden state extraction
 
 def collect_hidden_states(
     model,
@@ -223,8 +216,6 @@ def aggregate_tokens(
     return X
 
 
-# SVD-based diagnostics
-
 def svdvals_cpu_f64(M: torch.Tensor) -> np.ndarray:
     return torch.linalg.svdvals(M.detach().cpu().double()).numpy()
 
@@ -234,11 +225,7 @@ def spectrum_metrics(s: np.ndarray, rel_tol: float = 1e-6) -> Dict:
     s = np.sort(s[np.isfinite(s) & (s >= 0)])[::-1]
 
     if len(s) == 0 or s[0] <= 0:
-        warnings.warn("All singular values are zero or non-finite.")
-        return dict(
-            sigma1=np.nan, numerical_rank=0, kappa_eff=np.nan,
-            stable_rank=np.nan, effective_rank=np.nan, fro_norm=np.nan,
-        )
+        raise ValueError("spectrum is empty or has non-positive top singular value")
 
     thresh = rel_tol * s[0]
     keep = s[s > thresh]
@@ -286,8 +273,6 @@ def compute_low_rank_errors(s: np.ndarray, ks: List[int]) -> Dict[int, float]:
     return out
 
 
-# Gram matrix
-
 def compute_gram(X: torch.Tensor) -> torch.Tensor:
     return X @ X.T
 
@@ -303,25 +288,16 @@ def compute_gram_diag_summary(G: torch.Tensor) -> Dict:
     )
 
 
-# Attention score computation
-
 def get_qk_projections(model, layer_idx: int):
     """returns (q_lin, k_lin, n_heads, head_dim) for distilbert layer layer_idx, on cpu."""
-    try:
-        attn = model.transformer.layer[layer_idx].attention
-        q_lin = attn.q_lin.cpu()
-        k_lin = attn.k_lin.cpu()
-        n_heads = int(attn.n_heads)
-        head_dim = model.config.dim // n_heads
-        q_lin.train(False)
-        k_lin.train(False)
-        return q_lin, k_lin, n_heads, head_dim
-    except AttributeError as exc:
-        raise AttributeError(
-            f"Could not access q_lin/k_lin on transformer layer {layer_idx}. "
-            f"Inspect model.transformer.layer[{layer_idx}].attention. "
-            f"Original: {exc}"
-        ) from exc
+    attn = model.transformer.layer[layer_idx].attention
+    q_lin = attn.q_lin.cpu()
+    k_lin = attn.k_lin.cpu()
+    n_heads = int(attn.n_heads)
+    head_dim = model.config.dim // n_heads
+    q_lin.train(False)
+    k_lin.train(False)
+    return q_lin, k_lin, n_heads, head_dim
 
 
 def compute_attention_scores(
@@ -364,8 +340,6 @@ def compute_attention_scores(
 
     return results
 
-
-# Attention perturbation test
 
 def compute_attention_perturbation(
     model,
@@ -436,8 +410,6 @@ def compute_attention_perturbation(
 
     return rows
 
-
-# Plotting
 
 def _series_col(df: pd.DataFrame) -> pd.Series:
     return df.apply(
@@ -517,17 +489,25 @@ def plot_low_rank_curve(
     plt.close(fig)
 
 
-def plot_gram_diag_bars(gram_diag_df: pd.DataFrame, layer: str, path: Path, d: int) -> None:
-    """Bar chart of Gram diagonal mean (height) and std (error bars) at a given layer."""
+def plot_gram_diag_bars(
+    gram_diag_df: pd.DataFrame,
+    layer: str,
+    path: Path,
+    d: int,
+    transforms: List[Tuple[str, Optional[float]]],
+) -> None:
+    """bar chart of Gram diagonal mean and std at the given layer, in transforms order."""
     sub = gram_diag_df[gram_diag_df["layer"] == layer].copy()
     if sub.empty:
         return
+    def _label(t: str, a: Optional[float]) -> str:
+        if t == "raw":
+            return "raw"
+        if t == "ln":
+            return "LN"
+        return rf"DyT $\alpha={a}$"
     order: List[Tuple[str, Optional[float], str]] = [
-        ("raw", None, "raw"),
-        ("ln",  None, "LN"),
-        ("dyt", 0.25, r"DyT $\alpha=0.25$"),
-        ("dyt", 0.5,  r"DyT $\alpha=0.5$"),
-        ("dyt", 1.0,  r"DyT $\alpha=1.0$"),
+        (t, a, _label(t, a)) for t, a in transforms
     ]
     means, stds, labels = [], [], []
     for t, a, lab in order:
@@ -572,6 +552,7 @@ def make_plots(
     final_layer: str,
     out_dir: Path,
     hidden_dim: int,
+    transforms: List[Tuple[str, Optional[float]]],
 ) -> None:
     plot_spectrum(spectra_X, f"Feature singular value decay (layer {final_layer})",
                   out_dir / "fig_spectrum_X_final.png")
@@ -601,7 +582,7 @@ def make_plots(
 
     plot_gram_diag_bars(gd, layer=final_layer,
                         path=out_dir / "fig_gram_diag_layer6_bars.png",
-                        d=hidden_dim)
+                        d=hidden_dim, transforms=transforms)
 
     for matrix in ["X", "G"]:
         plot_low_rank_curve(
@@ -610,8 +591,6 @@ def make_plots(
             path=out_dir / f"fig_low_rank_{matrix}_final.png",
         )
 
-
-# CLI
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="DistilBERT numerical diagnostics: LN vs DyT")
@@ -642,6 +621,21 @@ def parse_args() -> argparse.Namespace:
         p.error("--eps must be > 0")
     if args.rel_tol <= 0:
         p.error("--rel_tol must be > 0")
+
+    def _parse_float_list(raw: str, name: str) -> List[float]:
+        items = [tok.strip() for tok in raw.split(",") if tok.strip()]
+        if not items:
+            p.error(f"--{name} must contain at least one positive value")
+        try:
+            vals = [float(t) for t in items]
+        except ValueError:
+            p.error(f"--{name} must be a comma-separated list of floats")
+        if any(v <= 0 for v in vals):
+            p.error(f"--{name} entries must all be > 0")
+        return vals
+
+    args.alphas = _parse_float_list(args.alphas, "alphas")
+    args.perturb_scales = _parse_float_list(args.perturb_scales, "perturb_scales")
     return args
 
 
@@ -764,15 +758,42 @@ def run_attention_diagnostics(
     return metrics, perturb
 
 
+_GENERATED_FILES = (
+    "metrics_summary.csv",
+    "low_rank_errors.csv",
+    "gram_diagonal_summary.csv",
+    "attention_perturbation.csv",
+    "fig_spectrum_X_final.png",
+    "fig_spectrum_G_final.png",
+    "fig_gram_diag_std.png",
+    "fig_gram_diag_mean.png",
+    "fig_gram_diag_layer6_bars.png",
+    "fig_low_rank_X_final.png",
+    "fig_low_rank_G_final.png",
+    "fig_stable_rank_X.png",
+    "fig_stable_rank_G.png",
+    "fig_stable_rank_S.png",
+    "fig_kappa_eff_X.png",
+    "fig_kappa_eff_G.png",
+    "fig_kappa_eff_S.png",
+)
+
+
+def clear_stale_outputs(out_dir: Path) -> None:
+    for name in _GENERATED_FILES:
+        f = out_dir / name
+        if f.exists():
+            f.unlink()
+
+
 def main() -> None:
     args = parse_args()
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    clear_stale_outputs(out_dir)
 
-    alphas = [float(a) for a in args.alphas.split(",")]
-    perturb_scales = [float(s) for s in args.perturb_scales.split(",")]
     transforms: List[Tuple[str, Optional[float]]] = (
-        [("raw", None), ("ln", None)] + [("dyt", a) for a in alphas]
+        [("raw", None), ("ln", None)] + [("dyt", a) for a in args.alphas]
     )
     ks = [1, 2, 4, 8, 16, 32, 64, 128]
 
@@ -803,14 +824,11 @@ def main() -> None:
 
     perturb_rows: List[Dict] = []
     if not args.skip_attention:
-        try:
-            s_metrics, perturb_rows = run_attention_diagnostics(
-                model, hidden_by_state, masks, n_transformer_layers,
-                transforms, args.eps, args.rel_tol, perturb_scales,
-            )
-            metrics_rows.extend(s_metrics)
-        except AttributeError as exc:
-            print(f"\nwarning: attention diagnostics skipped -- {exc}")
+        s_metrics, perturb_rows = run_attention_diagnostics(
+            model, hidden_by_state, masks, n_transformer_layers,
+            transforms, args.eps, args.rel_tol, args.perturb_scales,
+        )
+        metrics_rows.extend(s_metrics)
 
     metrics_df = pd.DataFrame(metrics_rows)
     low_rank_df = pd.DataFrame(low_rank_rows)
@@ -823,7 +841,8 @@ def main() -> None:
 
     make_plots(metrics_df, low_rank_df, gram_diag_df,
                spectra_X, spectra_G, final_layer, out_dir,
-               hidden_dim=int(model.config.dim))
+               hidden_dim=int(model.config.dim),
+               transforms=transforms)
 
     print(f"\noutputs saved to: {out_dir.resolve()}")
     for f in sorted(out_dir.iterdir()):
