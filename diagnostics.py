@@ -53,9 +53,7 @@ import torch
 from tqdm.auto import tqdm
 from transformers import AutoModel, AutoTokenizer
 
-# ---------------------------------------------------------------------------
 # Built-in text corpus (diverse, reproducible)
-# ---------------------------------------------------------------------------
 
 _BASE_TEXTS: List[str] = [
     "Transformers use attention mechanisms to compare token representations.",
@@ -91,9 +89,7 @@ _BASE_TEXTS: List[str] = [
 ]
 
 
-# ---------------------------------------------------------------------------
 # Data utilities
-# ---------------------------------------------------------------------------
 
 def get_texts(num_texts: int, text_file: Optional[str] = None) -> List[str]:
     if text_file is not None:
@@ -106,9 +102,7 @@ def get_texts(num_texts: int, text_file: Optional[str] = None) -> List[str]:
     return (base * (num_texts // len(base) + 1))[:num_texts]
 
 
-# ---------------------------------------------------------------------------
 # Device selection
-# ---------------------------------------------------------------------------
 
 def _mps_available() -> bool:
     return getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
@@ -128,9 +122,7 @@ def choose_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-# ---------------------------------------------------------------------------
 # Core maps (no learned affine parameters)
-# ---------------------------------------------------------------------------
 
 def core_ln(X: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
     """Rowwise zero-mean unit-variance normalization."""
@@ -164,9 +156,7 @@ def transform_label(transform: str, alpha: Optional[float]) -> str:
     return transform if alpha is None else f"{transform}_a{alpha}"
 
 
-# ---------------------------------------------------------------------------
 # Model loading
-# ---------------------------------------------------------------------------
 
 def load_model(model_name: str, device: torch.device):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -175,9 +165,7 @@ def load_model(model_name: str, device: torch.device):
     return model, tokenizer
 
 
-# ---------------------------------------------------------------------------
 # Hidden state extraction
-# ---------------------------------------------------------------------------
 
 def collect_hidden_states(
     model,
@@ -241,9 +229,7 @@ def aggregate_tokens(
     return X
 
 
-# ---------------------------------------------------------------------------
 # SVD-based diagnostics
-# ---------------------------------------------------------------------------
 
 def svdvals_cpu_f64(M: torch.Tensor) -> np.ndarray:
     return torch.linalg.svdvals(M.detach().cpu().double()).numpy()
@@ -306,9 +292,7 @@ def compute_low_rank_errors(s: np.ndarray, ks: List[int]) -> Dict[int, float]:
     return out
 
 
-# ---------------------------------------------------------------------------
 # Gram matrix
-# ---------------------------------------------------------------------------
 
 def compute_gram(X: torch.Tensor) -> torch.Tensor:
     return X @ X.T
@@ -325,9 +309,7 @@ def compute_gram_diag_summary(G: torch.Tensor) -> Dict:
     )
 
 
-# ---------------------------------------------------------------------------
 # Attention score computation
-# ---------------------------------------------------------------------------
 
 def get_qk_projections(model, layer_idx: int):
     """
@@ -396,9 +378,7 @@ def compute_attention_scores(
     return results
 
 
-# ---------------------------------------------------------------------------
 # Attention perturbation test
-# ---------------------------------------------------------------------------
 
 def compute_attention_perturbation(
     model,
@@ -474,9 +454,7 @@ def compute_attention_perturbation(
     return rows
 
 
-# ---------------------------------------------------------------------------
 # Plotting
-# ---------------------------------------------------------------------------
 
 def _series_col(df: pd.DataFrame) -> pd.Series:
     return df.apply(
@@ -556,7 +534,7 @@ def plot_low_rank_curve(
     plt.close(fig)
 
 
-def plot_gram_diag_bars(gram_diag_df: pd.DataFrame, layer: str, path: Path) -> None:
+def plot_gram_diag_bars(gram_diag_df: pd.DataFrame, layer: str, path: Path, d: int) -> None:
     """Bar chart of Gram diagonal mean (height) and std (error bars) at a given layer."""
     sub = gram_diag_df[gram_diag_df["layer"] == layer].copy()
     if sub.empty:
@@ -587,7 +565,8 @@ def plot_gram_diag_bars(gram_diag_df: pd.DataFrame, layer: str, path: Path) -> N
     colors = ["#888888", "#1f77b4", "#aec7e8", "#7fbf7f", "#2ca02c"][: len(labels)]
     ax.bar(x, means, yerr=stds, capsize=6, color=colors,
            edgecolor="black", linewidth=0.6)
-    ax.axhline(768, color="red", linestyle="--", linewidth=1, label=r"$d=768$ (LN prediction)")
+    ax.axhline(d, color="red", linestyle="--", linewidth=1,
+               label=rf"$d={d}$ (LN prediction)")
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylabel("Gram diagonal mean (with std as error bars)")
@@ -647,14 +626,12 @@ def make_plots(
         )
 
 
-# ---------------------------------------------------------------------------
 # CLI
-# ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="DistilBERT numerical diagnostics: LN vs DyT")
     p.add_argument("--model_name", type=str, default="distilbert-base-uncased")
-    p.add_argument("--num_texts", type=int, default=100)
+    p.add_argument("--num_texts", type=int, default=120)
     p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--max_length", type=int, default=64)
     p.add_argument("--max_tokens", type=int, default=512,
@@ -674,9 +651,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     args = parse_args()
@@ -724,9 +699,7 @@ def main() -> None:
     spectra_X: Dict[str, np.ndarray] = {}
     spectra_G: Dict[str, np.ndarray] = {}
 
-    # ------------------------------------------------------------------
     # Feature and Gram diagnostics (all hidden states, embed through layer_6)
-    # ------------------------------------------------------------------
     for state_idx in tqdm(state_indices, desc="Feature/Gram diagnostics"):
         layer_label = state_name(state_idx)
         X_raw = aggregate_tokens(hidden_by_state[state_idx], masks, args.max_tokens)
@@ -775,9 +748,7 @@ def main() -> None:
                 spectra_X[label] = sX
                 spectra_G[label] = sG
 
-    # ------------------------------------------------------------------
     # Attention score and perturbation diagnostics (transformer layers only)
-    # ------------------------------------------------------------------
     perturb_rows: List[Dict] = []
 
     if not args.skip_attention:
@@ -820,9 +791,7 @@ def main() -> None:
                 print(f"\nWARNING: Attention diagnostics skipped -- {exc}")
                 attention_ok = False
 
-    # ------------------------------------------------------------------
     # Save CSVs
-    # ------------------------------------------------------------------
     metrics_df = pd.DataFrame(metrics_rows)
     low_rank_df = pd.DataFrame(low_rank_rows)
     gram_diag_df = pd.DataFrame(gram_diag_rows)
@@ -833,9 +802,7 @@ def main() -> None:
     if perturb_rows:
         pd.DataFrame(perturb_rows).to_csv(out_dir / "attention_perturbation.csv", index=False)
 
-    # ------------------------------------------------------------------
     # Plots
-    # ------------------------------------------------------------------
     make_plots(metrics_df, low_rank_df, gram_diag_df,
                spectra_X, spectra_G, final_layer, out_dir)
 
