@@ -2,7 +2,7 @@
 
 Spring 2026 Final project for 18.S995 by Kyle Luo.
 
-A controlled numerical case study comparing core LayerNorm and core Dynamic Tanh maps applied post-hoc to `distilbert-base-uncased` hidden states. See `main.tex` for the writeup.
+A controlled numerical case study comparing core LayerNorm and core Dynamic Tanh maps applied post-hoc to `distilbert-base-uncased` hidden states. See the [paper (PDF)](18_S995_Final_Proj.pdf) for the writeup.
 
 By default, the input text is `data/alice_120.txt`: 120 sentence-like segments extracted from the public-domain Project Gutenberg text of Lewis Carroll's *Alice's Adventures in Wonderland*. Use `--text_file` to run the same diagnostics on another one-sentence-per-line text file.
 
